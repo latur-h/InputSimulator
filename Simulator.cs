@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -14,7 +16,7 @@ namespace InputSimulator
     {
         private readonly HashSet<string> HeldModifiers = new(StringComparer.OrdinalIgnoreCase);
 
-        private readonly Dictionary<string, ushort> KeyMap = new(StringComparer.OrdinalIgnoreCase)
+        public readonly Dictionary<string, ushort> KeyMap = new(StringComparer.OrdinalIgnoreCase)
         {
             // Mouse
             ["LButton"] = 0x01,
@@ -179,10 +181,21 @@ namespace InputSimulator
             ["LaunchApp2"] = 0xB7,
         };
 
-        public Simulator(){ }
+        private readonly string? _process = null;
+
+        public Simulator(){}
+        public Simulator(string process) 
+        {
+            if (process.Contains(".exe"))
+                process = process.Substring(0, process.IndexOf(".exe", StringComparison.OrdinalIgnoreCase)).Trim();
+
+            _process = process;
+        }
 
         public void Send(string input)
         {
+            if (!string.IsNullOrEmpty(_process) && !IsActiveWindow(_process)) return;
+
             if (string.IsNullOrWhiteSpace(input)) return;
 
             string[] parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -233,45 +246,6 @@ namespace InputSimulator
                         SendKey(vkCode, false);
                         break;
                 }
-            }
-        }
-        public void MouseSetPos(int x, int y) => SetCursorPos(x, y);
-        public void MouseDeltaMove(int targetX, int targetY, double speed = 1.0)
-        {
-            if (speed <= 0) speed = 1.0;
-
-            GetCursorPos(out Point start);
-            int totalDx = targetX - start.X;
-            int totalDy = targetY - start.Y;
-
-            double distance = Math.Sqrt(totalDx * totalDx + totalDy * totalDy);
-            int durationMs = (int)(distance * 0.8 / speed);
-
-            int steps = Math.Max(10, durationMs / 10);
-            Random rand = new Random();
-            double curveStrength = rand.NextDouble() * 0.5 + 0.5;
-
-            double prevX = 0, prevY = 0;
-
-            for (int i = 0; i <= steps; i++)
-            {
-                double t = (double)i / steps;
-                double easeT = t * t * (3 - 2 * t);
-                double curve = Math.Sin(easeT * Math.PI) * curveStrength;
-
-                double x = (totalDx * easeT) + curve * 10;
-                double y = (totalDy * easeT) + curve * 5;
-
-                int dx = (int)Math.Round(x - prevX);
-                int dy = (int)Math.Round(y - prevY);
-
-                prevX += dx;
-                prevY += dy;
-
-                if (dx != 0 || dy != 0)
-                    SendDelta(dx, dy);
-
-                Thread.Sleep((int)(10 / speed) + rand.Next(3));
             }
         }
 
@@ -330,7 +304,54 @@ namespace InputSimulator
 
             SendInput(1, new[] { input }, Marshal.SizeOf(typeof(INPUT)));
         }
-        private static void SendDelta(int dx, int dy)
+
+        public void MouseSetPos(int x, int y) 
+        {
+            if (!string.IsNullOrEmpty(_process) && !IsActiveWindow(_process)) return;
+
+            SetCursorPos(x, y); 
+        }
+        public void MouseDeltaMove(int targetX, int targetY, double speed = 1.0)
+        {
+            if (!string.IsNullOrEmpty(_process) && !IsActiveWindow(_process)) return;
+
+            if (speed <= 0) speed = 1.0;
+
+            GetCursorPos(out Point start);
+            int totalDx = targetX - start.X;
+            int totalDy = targetY - start.Y;
+
+            double distance = Math.Sqrt(totalDx * totalDx + totalDy * totalDy);
+            int durationMs = (int)(distance * 0.8 / speed);
+
+            int steps = Math.Max(10, durationMs / 10);
+            Random rand = new Random();
+            double curveStrength = rand.NextDouble() * 0.5 + 0.5;
+
+            double prevX = 0, prevY = 0;
+
+            for (int i = 0; i <= steps; i++)
+            {
+                double t = (double)i / steps;
+                double easeT = t * t * (3 - 2 * t);
+                double curve = Math.Sin(easeT * Math.PI) * curveStrength;
+
+                double x = (totalDx * easeT) + curve * 10;
+                double y = (totalDy * easeT) + curve * 5;
+
+                int dx = (int)Math.Round(x - prevX);
+                int dy = (int)Math.Round(y - prevY);
+
+                prevX += dx;
+                prevY += dy;
+
+                if (dx != 0 || dy != 0)
+                    SendDelta(dx, dy);
+
+                Thread.Sleep((int)(10 / speed) + rand.Next(3));
+            }
+        }
+        private void SendDelta(int dx, int dy)
         {
             INPUT[] input = new INPUT[1];
             input[0].type = INPUT_MOUSE;
@@ -342,6 +363,71 @@ namespace InputSimulator
             input[0].U.mi.dwExtraInfo = IntPtr.Zero;
 
             SendInput(1, input, Marshal.SizeOf(typeof(INPUT)));
+        }
+
+        public bool IsActiveWindow(string query)
+        {
+            var hWnd = GetForegroundWindow();
+            if (hWnd == IntPtr.Zero)
+                return false;
+
+            if (query.StartsWith("exe ", StringComparison.OrdinalIgnoreCase))
+            {
+                string targetExe = query.Substring(4).Trim();
+
+                GetWindowThreadProcessId(hWnd, out uint pid);
+                try
+                {
+                    var process = Process.GetProcessById((int)pid);
+                    return string.Equals(process.ProcessName, targetExe, StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                StringBuilder titleBuilder = new StringBuilder(256);
+                GetWindowText(hWnd, titleBuilder, titleBuilder.Capacity);
+                string title = titleBuilder.ToString();
+
+                return title.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+        public bool IsActiveWindow()
+        {
+            if (string.IsNullOrEmpty(_process))
+                return false;
+
+            var hWnd = GetForegroundWindow();
+            if (hWnd == IntPtr.Zero)
+                return false;
+
+            if (_process.StartsWith("exe ", StringComparison.OrdinalIgnoreCase))
+            {
+                string targetExe = _process.Substring(4).Trim();
+
+                GetWindowThreadProcessId(hWnd, out uint pid);
+                try
+                {
+                    var process = Process.GetProcessById((int)pid);
+
+                    return string.Equals(process.ProcessName, targetExe, StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                StringBuilder titleBuilder = new StringBuilder(256);
+                GetWindowText(hWnd, titleBuilder, titleBuilder.Capacity);
+                string title = titleBuilder.ToString();
+
+                return title.IndexOf(_process, StringComparison.OrdinalIgnoreCase) >= 0;
+            }
         }
 
         private bool IsMouseKey(string key) =>

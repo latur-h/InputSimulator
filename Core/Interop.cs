@@ -22,7 +22,7 @@ namespace InputSimulator.Core
         internal const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
         internal const uint MOUSEEVENTF_XDOWN = 0x0080;
         internal const uint MOUSEEVENTF_XUP = 0x0100;
-        
+
         internal const uint XBUTTON1 = 0x0001;
         internal const uint XBUTTON2 = 0x0002;
 
@@ -67,5 +67,13 @@ namespace InputSimulator.Core
         internal static extern bool SetCursorPos(int X, int Y);
         [DllImport("user32.dll")]
         internal static extern bool GetCursorPos(out Point lpPoint);
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     }
 }

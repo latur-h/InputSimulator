@@ -6,6 +6,9 @@
     <Nullable>enable</Nullable>
 	<RepositoryUrl>https://github.com/latur-h/InputSimulator</RepositoryUrl>
 	<PackageLicenseExpression>MIT</PackageLicenseExpression>
+	<Version>1.0.0</Version>
+	<Authors>Latur</Authors>
+	<Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
 </Project>
